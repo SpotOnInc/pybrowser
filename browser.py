@@ -29,11 +29,27 @@ class Waiter(object):
     """
 
 class ResultSet(object):
+    """
+    A set of element results returned from a selector query. This allows
+    some batch operations, such as .has and .get
+    """
     def __init__(self, res):
         self.res = res
 
     def get(self, i):
+        """
+        Returns result at index `i`
+        """
         return self.res.get(i)
+
+    def has(self, amount=None):
+        """
+        Returns whether the ResultSet has any results in it, or if `amount`
+        is specified, whether the number of results matches `amount`
+        """
+        if amount is not None:
+            return len(self.res) == amount
+        return len(self.res)
 
     def __getattr__(self, i):
         return getattr(self.res[0], i)
@@ -46,7 +62,13 @@ class ResultSet(object):
 
 class ChromeDriver(BDriver):
     """
-    A Driver implementation for Google Chrome.
+    A Driver implementation for Google Chrome. This uses the downloaded
+    chromedriver (see http://chromedriver.storage.googleapis.com/index.html)
+    which should (by default) be located at /usr/bin/chromedriver. This
+    is configurable using the `driver_path` option. Additionally, one
+    can specify a port for ChromeDriver to run on, although it defaults
+    to 9123. Note, you should make this different if more then one instance
+    of this class needs to run at once.
     """
     def __init__(self, driver_path="/usr/bin/chromedriver", port=9123):
         self.driver_path = driver_path
@@ -80,48 +102,81 @@ class ChromeDriver(BDriver):
         return r.json()
 
     def get_status(self):
+        """
+        Returns the status of this driver.
+        """
         return self.r_get("status").get("status", -1)
 
     def is_running(self):
+        """
+        Returns whether the chromedriver process is still running.
+        """
         return (self.process and self.process.poll() is None)
 
     def is_working(self):
+        """
+        Returns whether the driver is actually working (e.g. useable).
+        """
         return (self.get_status() != -1)
 
     def start(self):
+        """
+        Starts a subprocess of the webdriver binary, passing in our port
+        argument. This will try 5 times to start a webdriver, and tests
+        each time whether the instance is running based on ouput text.
+
+        Will raise an exception if it cannot start the process.
+        """
         self.process = subprocess.Popen([self.driver_path, "--port=%s" % self.port], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         for i in range(0, 5):
             # This was purposely placed where it is...
             time.sleep(.5)
             if self.process.stdout.readline().startswith("Starting ChromeDriver"):
+                if not self.is_running:
+                    raise Exception("Could not start ChromeDriver: %s" % self.process.stdout.readlines())
                 return
         raise Exception("Could not start ChromeDriver!")
 
     def stop(self, kill_sessions=True):
+        """
+        Stops the webdriver subprocess if it exists. This should /really/
+        always be run before quitting.
+        """
         if self.is_running():
             if kill_sessions:
                 for s in self.sessions:
                     if s.is_active():
-                        s.exit(parent=True)
+                        s.exit()
             self.process.kill()
             self.process.wait()
             return
         raise Exception("Cannot stop non-running driver")
 
     def new_session(self):
+        """
+        Creates and returns a new ChromeDriverSession. One driver can have
+        multiple sessions, and thus this can be called many times in
+        succession
+        """
         data = self.r_post("session", {"desiredCapabilities": {}, "requiredCapabilities": {}})
         sess = ChromeDriverSession(self, data)
         self.sessions.append(sess)
         return sess
 
 class ChromeDriverWaiter(Waiter):
-    def __init__(self, ttl, cond, default, f, args, kwargs):
+    """
+    A utility class that helps with waiting for conditions to be met
+
+    TODO: rewrite me, make this whole thing readable
+    """
+    def __init__(self, ttl, cond, default, f, args, kwargs, wrap=lambda a: a):
         self.ttl = ttl
         self.default = default
         self.cond = cond
         self.f = f
         self.args = args
         self.kwargs = kwargs
+        self.wrap = wrap
 
     def wait(self):
         for i in range(0, (self.ttl+1)*2):
@@ -129,10 +184,14 @@ class ChromeDriverWaiter(Waiter):
             if not self.cond(value):
                 time.sleep(.5)
                 continue
-            return value
-        return self.default
+            return self.wrap(value)
+        return self.wrap(self.default)
 
 class ChromeDriverSession(Session):
+    """
+    A single browser session inside the chrome driver. Represents one
+    browser instance.
+    """
     def __init__(self, parent, data):
         self.parent = parent
         self.data = data
@@ -140,45 +199,79 @@ class ChromeDriverSession(Session):
         self.window = self.get_windows()[0]
 
     def r(self, f, *args, **kwargs):
+        """
+        Basic request wrapper that will raise exception on non 200 return
+        codes
+        """
         r = f(*args, **kwargs)
         r.raise_for_status()
         data = r.json()
         return data
 
     def r_get(self, url, data=None):
+        """
+        Fire a get request on this session
+        """
         return self.r(requests.get, self.url+url, data=json.dumps(data or {}))
 
     def r_post(self, url, data=None):
+        """
+        Fire a post request on this session
+        """
         return self.r(requests.post, self.url+url, data=json.dumps(data or {}))
 
     def r_delete(self, url, data=None):
+        """
+        Fire a delete request on this session
+        """
         return self.r(requests.delete, self.url+url, data=json.dumps(data or {}))
 
-    def get_status(self):
-        return self.r_get("")
-
     def is_active(self):
-        return self.get_status().get("status", -1)
+        """
+        TODO
+        """
+        return True
 
-    def exit(self, parent=False):
-        r = self.r_delete("")
+    def exit(self):
+        """
+        Closes this browser session
+        """
+        self.r_delete("")
 
     def goto(self, url):
+        """
+        Send the browser to the url `url`.
+        """
         self.r_post("/url", {"url": url})
 
     def get_url(self):
+        """
+        Returns the current url the browser session is at.
+        """
         return self.r_get("/url").get("value")
 
     def html(self):
+        """
+        Returns the html source of the current loaded webpage
+        """
         return self.r_get("/source").get("value")
 
     def title(self):
+        """
+        Returns the title of the current loaded webpage
+        """
         return self.r_get("/title").get("value")
 
     def maximize(self):
+        """
+        Maxamizes the browser window
+        """
         return self.r_post("/window/%s/maximize" % self.window)
 
     def get_windows(self):
+        """
+        Returns the windows for this session
+        """
         return self.r_get("/window_handles").get("value")
 
     def finder(self, format, value, wait=0):
@@ -192,7 +285,7 @@ class ChromeDriverSession(Session):
             result.append(ChromeDriverElement(self, item))
 
         if wait and not len(result):
-            return ChromeDriverWaiter(wait, lambda a: len(a), [], self.finder, [format, value], {"wait": 0}).wait()
+            return ChromeDriverWaiter(wait, lambda a: len(a), [], self.finder, [format, value], {"wait": 0}, ResultSet).wait()
         return ResultSet(result)
 
     def find(self, id=None, name=None, tag=None, css=None, cls=None, link=None, link_text=None, **kwargs):
@@ -236,10 +329,15 @@ class ChromeDriverSession(Session):
         return self.finder(q, link, **kwargs)
 
     def wait_js(self, script, f=lambda a: a.get("value"), wait_time=5):
-        return ChromeDriverWaiter(wait_time, f, False, self.r_post, ["/execute"], {"data": {"script": script}}).wait()
+        return ChromeDriverWaiter(wait_time, f, False, self.r_post, ["/execute"], {"data": {"script": script, "args": []}}).wait()
 
     def wait_jq_animation(self, sel):
-        return self.wait_js('''$("%s").is(":animated")''' % sel, f=lambda a: a.get("value") == "false")
+        return self.wait_js(
+            '''return !$("%s").is(":animated") && $("%s").is(":visible")''' %
+                (sel, sel), f=lambda a: a.get("value") == True)
+
+    def wait_for_ajax(self):
+        return self.wait_js("return $.active == 0", f=lambda a: a.get("value") == True)
 
 class ChromeDriverFinder(object):
     def __init__(self, parent, data):
@@ -265,8 +363,16 @@ class ChromeDriverElement(object):
             raise Exception("ChromeDriverElement.click error: %s" % data.get("value").get("message"))
         return self
 
-    def type(self, value=""):
-        self.r_post("/value", {'value': value.split()})
+    def type(self, value="", safe=False):
+        """
+        If safe is true, go one by one with short sleep
+        """
+        if safe:
+            for value in value.split():
+                self.type(value, safe=False)
+                time.sleep(.5)
+        else:
+            self.r_post("/value", {'value': value.split()})
         return self
 
     def text(self):
