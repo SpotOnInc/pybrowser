@@ -331,10 +331,12 @@ class ChromeDriverSession(Session):
     def wait_js(self, script, f=lambda a: a.get("value"), wait_time=5):
         return ChromeDriverWaiter(wait_time, f, False, self.r_post, ["/execute"], {"data": {"script": script, "args": []}}).wait()
 
-    def wait_jq_animation(self, sel):
-        return self.wait_js(
-            '''return !$("%s").is(":animated") && $("%s").is(":visible")''' %
-                (sel, sel), f=lambda a: a.get("value") == True)
+    def wait_jq_animation(self, sel, visible=True):
+        base = 'return !$("%s").is(":animated")' % sel
+        if visible:
+            add = ' && $("%s").is(":visible")' % sel
+        else: add = ''
+        return self.wait_js(base+add, f=lambda a: a.get("value") == True)
 
     def wait_for_ajax(self):
         return self.wait_js("return $.active == 0", f=lambda a: a.get("value") == True)
