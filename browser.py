@@ -1,5 +1,4 @@
 import requests, subprocess, json, time
-from pyquery import PyQuery
 
 class BDriver(object):
     """
@@ -127,13 +126,15 @@ class ChromeDriver(BDriver):
 
         Will raise an exception if it cannot start the process.
         """
-        self.process = subprocess.Popen([self.driver_path, "--port=%s" % self.port], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.process = subprocess.Popen([self.driver_path, "--port=%s" % self.port],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         for i in range(0, 5):
             # This was purposely placed where it is...
             time.sleep(.5)
             if self.process.stdout.readline().startswith("Starting ChromeDriver"):
                 if not self.is_running:
-                    raise Exception("Could not start ChromeDriver: %s" % self.process.stdout.readlines())
+                    raise Exception("Could not start ChromeDriver: %s" %
+                        self.process.stdout.readlines())
                 return
         raise Exception("Could not start ChromeDriver!")
 
@@ -274,7 +275,7 @@ class ChromeDriverSession(Session):
         """
         return self.r_get("/window_handles").get("value")
 
-    def finder(self, format, value, wait=0):
+    def finder(self, format, value, wait=0, **kwargs):
         data = self.r_post("/elements", {
             "using": format,
             "value": value
@@ -285,24 +286,25 @@ class ChromeDriverSession(Session):
             result.append(ChromeDriverElement(self, item))
 
         if wait and not len(result):
-            return ChromeDriverWaiter(wait, lambda a: len(a), [], self.finder, [format, value], {"wait": 0}, ResultSet).wait()
+            return ChromeDriverWaiter(wait, lambda a: len(a), [], self.finder, [format, value],
+                {"wait": 0}, ResultSet).wait()
         return ResultSet(result)
 
-    def find(self, id=None, name=None, tag=None, css=None, cls=None, link=None, link_text=None, **kwargs):
-        if id:
-            return self.find_id(id, **kwargs)
-        if name:
-            return self.find_name(name, **kwargs)
-        if tag:
-            return self.find_tag(tag, **kwargs)
-        if css:
-            return self.find_css(css, **kwargs)
-        if cls:
-            return self.find_class(cls, **kwargs)
-        if link_text:
-            return self.find_link_text(link_text, **kwargs)
-        if link:
-            return self.find_link(link, **kwargs)
+    def find(self, **kwargs):
+        if kwargs.get("id"):
+            return self.find_id(kwargs.get("id"), **kwargs)
+        if kwargs.get("name"):
+            return self.find_name(kwargs.get("name"), **kwargs)
+        if kwargs.get("tag"):
+            return self.find_tag(kwargs.get("tag"), **kwargs)
+        if kwargs.get("css"):
+            return self.find_css(kwargs.get("css"), **kwargs)
+        if kwargs.get("cls"):
+            return self.find_class(kwargs.get("cls"), **kwargs)
+        if kwargs.get("link_text"):
+            return self.find_link_text(kwargs.get("link_text"), **kwargs)
+        if kwargs.get("link"):
+            return self.find_link(kwargs.get("link"), **kwargs)
 
     def find_link(self, link, **kwargs):
         return self.find_css("a[href*='%s']" % link)
@@ -329,7 +331,8 @@ class ChromeDriverSession(Session):
         return self.finder(q, link, **kwargs)
 
     def wait_js(self, script, f=lambda a: a.get("value"), wait_time=5):
-        return ChromeDriverWaiter(wait_time, f, False, self.r_post, ["/execute"], {"data": {"script": script, "args": []}}).wait()
+        return ChromeDriverWaiter(wait_time, f, False, self.r_post, ["/execute"],
+            {"data": {"script": script, "args": []}}).wait()
 
     def wait_jq_animation(self, sel, visible=True):
         base = 'return !$("%s").is(":animated")' % sel
@@ -362,7 +365,8 @@ class ChromeDriverElement(object):
     def click(self):
         data = self.r_post("/click")
         if data.get("status") != 0:
-            raise Exception("ChromeDriverElement.click error: %s" % data.get("value").get("message"))
+            raise Exception("ChromeDriverElement.click error: %s" %
+                data.get("value").get("message"))
         return self
 
     def type(self, value="", safe=False):
@@ -383,7 +387,8 @@ class ChromeDriverElement(object):
 
     def visible(self, wait_for=None, wait_time=5):
         if wait_for is not None:
-            return ChromeDriverWaiter(wait_time, lambda a: a.get("value") == wait_for, None, self.r_get, ["/displayed"], {}).wait()
+            return ChromeDriverWaiter(wait_time, lambda a: a.get("value") == wait_for, None,
+                self.r_get, ["/displayed"], {}).wait()
         r = self.r_get("/displayed")
         return r.get("value")
 
@@ -392,14 +397,14 @@ DRIVERS = {
 }
 
 # Do you even function bro
-def Driver(s="chrome"):
+def new_driver(name="chrome"):
     """
     Function that returns a driver instance based on a name (string) of
     the driver. Throws exception if the driver is not recognized.
     """
-    if not s in DRIVERS:
-        raise Exception("No driver support for '%s'" % s)
-    return DRIVERS[s]()
+    if not name in DRIVERS:
+        raise Exception("No driver support for '%s'" % name)
+    return DRIVERS[name]()
 
 class KEYS(object):
     """
@@ -443,7 +448,7 @@ class KEYS(object):
     NUM9 = u"\uE023"
 
 if __name__ == "__main__":
-    driver = ChromeDriver()
+    driver = new_driver("chrome")
     driver.start()
     print driver.is_running()
     print driver.is_working()
