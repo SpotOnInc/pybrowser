@@ -1,63 +1,5 @@
-import requests, subprocess, json, time
-
-class BDriver(object):
-    """
-    The base driver class which represents a bare-minimum API for drivers
-    to implement.
-    """
-    def __getattr__(self, i):
-        if i in ["start", "stop", "is_running", "is_working", "get_status"]:
-            raise NotImplementedError("Drivers should implement function %s")
-        raise Exception("Driver's have no function/element %s" % i)
-
-class Element(object):
-    """
-    An interactible element on the page.
-    """
-
-class Session(object):
-    """
-    A single browser (window) session.
-    """
-    def has_text(self, s):
-        return (s in self.html())
-
-class Waiter(object):
-    """
-    An object that specifies rules for waiting on a condition
-    """
-
-class ResultSet(object):
-    """
-    A set of element results returned from a selector query. This allows
-    some batch operations, such as .has and .get
-    """
-    def __init__(self, res):
-        self.res = res
-
-    def get(self, i):
-        """
-        Returns result at index `i`
-        """
-        return self.res.get(i)
-
-    def has(self, amount=None):
-        """
-        Returns whether the ResultSet has any results in it, or if `amount`
-        is specified, whether the number of results matches `amount`
-        """
-        if amount is not None:
-            return len(self.res) == amount
-        return len(self.res)
-
-    def __getattr__(self, i):
-        return getattr(self.res[0], i)
-
-    def __getitem__(self, i):
-        return self.res[i]
-
-    def __len__(self):
-        return len(self.res)
+import requests, subprocess, json, time, base64
+from .base import *
 
 class ChromeDriver(BDriver):
     """
@@ -146,8 +88,7 @@ class ChromeDriver(BDriver):
         if self.is_running():
             if kill_sessions:
                 for s in self.sessions:
-                    if s.is_active():
-                        s.exit()
+                    s.exit()
             self.process.kill()
             self.process.wait()
             return
@@ -226,12 +167,6 @@ class ChromeDriverSession(Session):
         Fire a delete request on this session
         """
         return self.r(requests.delete, self.url+url, data=json.dumps(data or {}))
-
-    def is_active(self):
-        """
-        TODO
-        """
-        return True
 
     def exit(self):
         """
@@ -331,10 +266,25 @@ class ChromeDriverSession(Session):
         return self.finder(q, link, **kwargs)
 
     def wait_js(self, script, f=lambda a: a.get("value"), wait_time=5):
+        """
+        Executes javascript `script` and waits for the conditional function
+        `f` (taking the javascript's response as a variable) to be true.
+        """
         return ChromeDriverWaiter(wait_time, f, False, self.r_post, ["/execute"],
             {"data": {"script": script, "args": []}}).wait()
 
+    def has_jq(self):
+        """
+        Returns true if the current page has jQuery available...
+        """
+        data = self.r_post("/execute",
+            {"script": "return typeof jQuery !== 'undefined'", "args": []})
+        return data.get("value")
+
     def wait_jq_animation(self, sel, visible=True):
+        """
+        Waits for a jquery animation on a selector `sel` to finish
+        """
         base = 'return !$("%s").is(":animated")' % sel
         if visible:
             add = ' && $("%s").is(":visible")' % sel
@@ -342,7 +292,24 @@ class ChromeDriverSession(Session):
         return self.wait_js(base+add, f=lambda a: a.get("value") == True)
 
     def wait_for_ajax(self):
+        """
+        Waits for all /jquery/ AJAX requests to finish.
+        """
         return self.wait_js("return $.active == 0", f=lambda a: a.get("value") == True)
+
+    def screenshot(self):
+        """
+        Takes a screenshot of the current page and returns a base64 encoded
+        PNG image as a string.
+        """
+        return self.r_get("/screenshot").get("value")
+
+    def screenshot_to(self, f="screenshot.png"):
+        """
+        Takes a file location `f` and saves a PNG screenshot to that location.
+        """
+        with open(f, "w") as fi:
+            fi.write(base64.b64decode(self.screenshot()))
 
 class ChromeDriverFinder(object):
     def __init__(self, parent, data):
@@ -391,70 +358,3 @@ class ChromeDriverElement(object):
                 self.r_get, ["/displayed"], {}).wait()
         r = self.r_get("/displayed")
         return r.get("value")
-
-DRIVERS = {
-    "chrome": ChromeDriver
-}
-
-# Do you even function bro
-def new_driver(name="chrome"):
-    """
-    Function that returns a driver instance based on a name (string) of
-    the driver. Throws exception if the driver is not recognized.
-    """
-    if not name in DRIVERS:
-        raise Exception("No driver support for '%s'" % name)
-    return DRIVERS[name]()
-
-class KEYS(object):
-    """
-    Enum for keys that can be sent to the browser
-    """
-    NULL = u"\uE000"
-    CANCEL = u"\uE001"
-    HELP = u"\uE002"
-    BACKSPACE = u"\uE003"
-    TAB = u"\uE004"
-    CLEAR = u"\uE005"
-    RETURN = u"\uE006"
-    ENTER = u"\uE007"
-    SHIFT = u"\uE008"
-    CONTROL = u"\uE009"
-    ALT = u"\uE00A"
-    PAUSE = u"\uE00B"
-    ESCAPE = u"\uE00C"
-    SPACE = u"\uE00D"
-    PAGEUP = u"\uE00E"
-    PAGEDOWN = u"\uE00F"
-    END = u"\uE010"
-    HOME = u"\uE011"
-    LEFTARROW = u"\uE012"
-    UPARROW = u"\uE013"
-    RIGHTARROW = u"\uE014"
-    DOWNARROW = u"\uE015"
-    INSERT = u"\uE016"
-    DELETE = u"\uE017"
-    SEMICOLON = u"\uE018"
-    EQUALS = u"\uE019"
-    NUM0 = u"\uE01A"
-    NUM1 = u"\uE01B"
-    NUM2 = u"\uE01C"
-    NUM3 = u"\uE01D"
-    NUM4 = u"\uE01E"
-    NUM5 = u"\uE01F"
-    NUM6 = u"\uE020"
-    NUM7 = u"\uE021"
-    NUM8 = u"\uE022"
-    NUM9 = u"\uE023"
-
-if __name__ == "__main__":
-    driver = new_driver("chrome")
-    driver.start()
-    print driver.is_running()
-    print driver.is_working()
-    sess = driver.new_session()
-    sess.goto("http://google.com/")
-    print sess.find_id(id="gbqfq")[0].kb("test").click()
-    assert sess.title() == "Google"
-    sess.exit()
-    driver.stop()

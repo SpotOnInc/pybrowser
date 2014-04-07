@@ -1,0 +1,7 @@
+dist/
+build/
+pydrvr.egg-info
+*.pyc
+*~
+#*
+*.png
