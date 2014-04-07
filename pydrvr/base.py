@@ -24,7 +24,7 @@ def must_implement(functions):
     Returns an inheritable class which defines a list of strict functions
     `functions`, that must be implemented by subclasses.
     """
-    class _T():
+    class _T(object):
         @classmethod
         def verify_implementation(cls):
             """
