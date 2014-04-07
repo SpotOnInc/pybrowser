@@ -1,7 +1,7 @@
-import requests, subprocess, json, time, base64
-from .base import *
+import requests, subprocess, json, time
+from .base import BaseDriver, BaseElement, BaseSession, BaseWaiter, ResultSet
 
-class ChromeDriver(BDriver):
+class ChromeDriver(BaseDriver):
     """
     A Driver implementation for Google Chrome. This uses the downloaded
     chromedriver (see http://chromedriver.storage.googleapis.com/index.html)
@@ -105,7 +105,7 @@ class ChromeDriver(BDriver):
         self.sessions.append(sess)
         return sess
 
-class ChromeDriverWaiter(Waiter):
+class ChromeDriverWaiter(BaseWaiter):
     """
     A utility class that helps with waiting for conditions to be met
 
@@ -129,7 +129,7 @@ class ChromeDriverWaiter(Waiter):
             return self.wrap(value)
         return self.wrap(self.default)
 
-class ChromeDriverSession(Session):
+class ChromeDriverSession(BaseSession):
     """
     A single browser session inside the chrome driver. Represents one
     browser instance.
@@ -186,13 +186,13 @@ class ChromeDriverSession(Session):
         """
         return self.r_get("/url").get("value")
 
-    def html(self):
+    def get_html(self):
         """
         Returns the html source of the current loaded webpage
         """
         return self.r_get("/source").get("value")
 
-    def title(self):
+    def get_title(self):
         """
         Returns the title of the current loaded webpage
         """
@@ -265,37 +265,17 @@ class ChromeDriverSession(Session):
             q = "partial "+q
         return self.finder(q, link, **kwargs)
 
+    def execute(self, script):
+        data = self.r_post("/execute", {"script": script, "args": []})
+        return data.get("value")
+
     def wait_js(self, script, f=lambda a: a.get("value"), wait_time=5):
         """
         Executes javascript `script` and waits for the conditional function
         `f` (taking the javascript's response as a variable) to be true.
         """
-        return ChromeDriverWaiter(wait_time, f, False, self.r_post, ["/execute"],
-            {"data": {"script": script, "args": []}}).wait()
-
-    def has_jq(self):
-        """
-        Returns true if the current page has jQuery available...
-        """
-        data = self.r_post("/execute",
-            {"script": "return typeof jQuery !== 'undefined'", "args": []})
-        return data.get("value")
-
-    def wait_jq_animation(self, sel, visible=True):
-        """
-        Waits for a jquery animation on a selector `sel` to finish
-        """
-        base = 'return !$("%s").is(":animated")' % sel
-        if visible:
-            add = ' && $("%s").is(":visible")' % sel
-        else: add = ''
-        return self.wait_js(base+add, f=lambda a: a.get("value") == True)
-
-    def wait_for_ajax(self):
-        """
-        Waits for all /jquery/ AJAX requests to finish.
-        """
-        return self.wait_js("return $.active == 0", f=lambda a: a.get("value") == True)
+        return ChromeDriverWaiter(wait_time, f, False, self.execute,
+            [script]).wait()
 
     def screenshot(self):
         """
@@ -304,20 +284,13 @@ class ChromeDriverSession(Session):
         """
         return self.r_get("/screenshot").get("value")
 
-    def screenshot_to(self, f="screenshot.png"):
-        """
-        Takes a file location `f` and saves a PNG screenshot to that location.
-        """
-        with open(f, "w") as fi:
-            fi.write(base64.b64decode(self.screenshot()))
-
 class ChromeDriverFinder(object):
     def __init__(self, parent, data):
         self.parent = parent
         self.data = data
         self.url = "/element/%s" % self.data.get("ELEMENT")
 
-class ChromeDriverElement(object):
+class ChromeDriverElement(BaseElement):
     def __init__(self, parent, data):
         self.parent = parent
         self.data = data
@@ -348,13 +321,22 @@ class ChromeDriverElement(object):
             self.r_post("/value", {'value': value.split()})
         return self
 
-    def text(self):
+    def get_text(self):
         r = self.r_get("/text")
         return r.get("value")
 
-    def visible(self, wait_for=None, wait_time=5):
+    def is_visible(self, wait_for=None, wait_time=5):
         if wait_for is not None:
             return ChromeDriverWaiter(wait_time, lambda a: a.get("value") == wait_for, None,
                 self.r_get, ["/displayed"], {}).wait()
         r = self.r_get("/displayed")
         return r.get("value")
+
+def verify_chrome_driver():
+    """
+    This function attempts to verify all the chrome-driver implementations,
+    to ensure they match the base spec 100%
+    """
+    ChromeDriver.verify_implementation()
+    ChromeDriverSession.verify_implementation()
+    ChromeDriverElement.verify_implementation()
