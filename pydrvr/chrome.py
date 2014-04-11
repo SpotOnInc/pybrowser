@@ -94,13 +94,16 @@ class ChromeDriver(BaseDriver):
             return
         raise Exception("Cannot stop non-running driver")
 
-    def new_session(self):
+    def new_session(self, desired={}, required={}):
         """
         Creates and returns a new ChromeDriverSession. One driver can have
         multiple sessions, and thus this can be called many times in
         succession
         """
-        data = self.r_post("session", {"desiredCapabilities": {}, "requiredCapabilities": {}})
+        data = self.r_post("session", {
+            "desiredCapabilities": desired,
+            "requiredCapabilities": required
+        })
         sess = ChromeDriverSession(self, data)
         self.sessions.append(sess)
         return sess
