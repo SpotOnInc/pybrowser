@@ -20,7 +20,7 @@ sess = driver.new_session()
 
 # Cool... now lets have some fun! Let's head over to google
 sess.goto("http://google.com/")
-assert sess.title() == "Google"
+assert sess.get_title() == "Google"
 
 # Google that!
 print sess.find_id(id="gbqfq")[0].type("pydrvr").click()

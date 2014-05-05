@@ -132,7 +132,68 @@ class ChromeDriverWaiter(BaseWaiter):
             return self.wrap(value)
         return self.wrap(self.default)
 
-class ChromeDriverSession(BaseSession):
+class Findable(object):
+    def finder(self, format, value, wait=0, **kwargs):
+        base = self.base if hasattr(self, "base") else self
+
+        data = self.r_post("/element", {
+            "using": format,
+            "value": value
+        })
+
+        result = []
+        values = data.get("value", [])
+        values = [values] if not isinstance(values, list) else values
+
+        for item in values:
+            result.append(ChromeDriverElement(base, self, item))
+
+        if wait and not len(result):
+            return ChromeDriverWaiter(wait, lambda a: len(a), [], self.finder, [format, value],
+                {"wait": 0}, ResultSet).wait()
+        return ResultSet(result)
+
+    def find(self, **kwargs):
+        if kwargs.get("id"):
+            return self.find_id(kwargs.get("id"), **kwargs)
+        if kwargs.get("name"):
+            return self.find_name(kwargs.get("name"), **kwargs)
+        if kwargs.get("tag"):
+            return self.find_tag(kwargs.get("tag"), **kwargs)
+        if kwargs.get("css"):
+            return self.find_css(kwargs.get("css"), **kwargs)
+        if kwargs.get("cls"):
+            return self.find_class(kwargs.get("cls"), **kwargs)
+        if kwargs.get("link_text"):
+            return self.find_link_text(kwargs.get("link_text"), **kwargs)
+        if kwargs.get("link"):
+            return self.find_link(kwargs.get("link"), **kwargs)
+
+    def find_link(self, link, **kwargs):
+        return self.find_css("a[href*='%s']" % link)
+
+    def find_id(self, id, **kwargs):
+        return self.finder("id", id, **kwargs)
+
+    def find_name(self, name, **kwargs):
+        return self.finder("name", name, **kwargs)
+
+    def find_tag(self, name, **kwargs):
+        return self.finder("tag name", name, **kwargs)
+
+    def find_css(self, css, **kwargs):
+        return self.finder("css selector", css, **kwargs)
+
+    def find_class(self, cls, **kwargs):
+        return self.finder("class name", cls, **kwargs)
+
+    def find_link_text(self, link, **kwargs):
+        q = "link text"
+        if not kwargs.get("exact"):
+            q = "partial "+q
+        return self.finder(q, link, **kwargs)
+
+class ChromeDriverSession(BaseSession, Findable):
     """
     A single browser session inside the chrome driver. Represents one
     browser instance.
@@ -213,61 +274,6 @@ class ChromeDriverSession(BaseSession):
         """
         return self.r_get("/window_handles").get("value")
 
-    def finder(self, format, value, wait=0, **kwargs):
-        data = self.r_post("/elements", {
-            "using": format,
-            "value": value
-        })
-
-        result = []
-        for item in data.get("value", []):
-            result.append(ChromeDriverElement(self, item))
-
-        if wait and not len(result):
-            return ChromeDriverWaiter(wait, lambda a: len(a), [], self.finder, [format, value],
-                {"wait": 0}, ResultSet).wait()
-        return ResultSet(result)
-
-    def find(self, **kwargs):
-        if kwargs.get("id"):
-            return self.find_id(kwargs.get("id"), **kwargs)
-        if kwargs.get("name"):
-            return self.find_name(kwargs.get("name"), **kwargs)
-        if kwargs.get("tag"):
-            return self.find_tag(kwargs.get("tag"), **kwargs)
-        if kwargs.get("css"):
-            return self.find_css(kwargs.get("css"), **kwargs)
-        if kwargs.get("cls"):
-            return self.find_class(kwargs.get("cls"), **kwargs)
-        if kwargs.get("link_text"):
-            return self.find_link_text(kwargs.get("link_text"), **kwargs)
-        if kwargs.get("link"):
-            return self.find_link(kwargs.get("link"), **kwargs)
-
-    def find_link(self, link, **kwargs):
-        return self.find_css("a[href*='%s']" % link)
-
-    def find_id(self, id, **kwargs):
-        return self.finder("id", id, **kwargs)
-
-    def find_name(self, name, **kwargs):
-        return self.finder("name", name, **kwargs)
-
-    def find_tag(self, name, **kwargs):
-        return self.finder("tag name", name, **kwargs)
-
-    def find_css(self, css, **kwargs):
-        return self.finder("css selector", css, **kwargs)
-
-    def find_class(self, cls, **kwargs):
-        return self.finder("class name", cls, **kwargs)
-
-    def find_link_text(self, link, **kwargs):
-        q = "link text"
-        if not kwargs.get("exact"):
-            q = "partial "+q
-        return self.finder(q, link, **kwargs)
-
     def execute(self, script):
         data = self.r_post("/execute", {"script": script, "args": []})
         return data.get("value")
@@ -287,23 +293,18 @@ class ChromeDriverSession(BaseSession):
         """
         return self.r_get("/screenshot").get("value")
 
-class ChromeDriverFinder(object):
-    def __init__(self, parent, data):
-        self.parent = parent
-        self.data = data
-        self.url = "/element/%s" % self.data.get("ELEMENT")
-
-class ChromeDriverElement(BaseElement):
-    def __init__(self, parent, data):
+class ChromeDriverElement(BaseElement, Findable):
+    def __init__(self, base, parent, data):
+        self.base = base
         self.parent = parent
         self.data = data
         self.url = "/element/%s" % self.data.get("ELEMENT")
 
     def r_get(self, url, data=None):
-        return self.parent.r_get(self.url+url, data)
+        return self.base.r_get(self.url+url, data)
 
     def r_post(self, url, data=None):
-        return self.parent.r_post(self.url+url, data)
+        return self.base.r_post(self.url+url, data)
 
     def click(self):
         data = self.r_post("/click")
